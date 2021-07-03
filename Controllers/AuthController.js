@@ -1,5 +1,6 @@
 const db = require("../database/db");
 const bcrypt = require("bcrypt");
+const tokenGenerator = require("../utils/jwtGenerator");
 class AuthController {
   static getUsers(req, res) {
     try {
@@ -13,6 +14,7 @@ class AuthController {
       db.end;
     }
   }
+  //Registration
   static addUser(req, res) {
     try {
       const { username, email, password } = req.body;
@@ -42,17 +44,19 @@ class AuthController {
                             user_name, user_password, user_email)
                             VALUES ('${username}','${hash}','${email}') returning user_id;`;
                 db.one(insertQuery)
-                  .then((data) => {
+                  .then(async (data) => {
+                    const token = await tokenGenerator(data.user_id);
                     res.status(200).json({
                       status: true,
                       message: "succsessfully registred",
                       userid: data.user_id,
+                      token: token,
                     });
                   })
                   .catch((e) => {
-                    console.status(200).json({
+                    res.status(200).json({
                       status: false,
-                      message: "Unexpected Error Occured",
+                      message: `Unexpected Error Occured , ${e}`,
                     });
                   });
               } else {
@@ -64,6 +68,58 @@ class AuthController {
       });
     } catch (e) {
       return res.status(500).json({ message: e.message });
+    } finally {
+      db.end;
+    }
+  }
+
+  static login(req, res) {
+    try {
+      const { email, password } = req.body;
+      if (
+        email == undefined ||
+        email == "" ||
+        email == null ||
+        password == undefined ||
+        password == "" ||
+        password == null
+      ) {
+        return res.status(500).json({ message: "Invalid form values" });
+      }
+      //check wheater valid user or not
+      const checkUserQuery = `SELECT * FROM "users" WHERE user_email = '${email}'`;
+      db.oneOrNone(checkUserQuery)
+        .then(async (data) => {
+          if (data !== null) {
+            const passwordTestRes = await bcrypt.compare(
+              password,
+              data.user_password
+            );
+            if (passwordTestRes) {
+              const token = await tokenGenerator(data.user_id);
+              return res.status(200).json({
+                status: true,
+                message: "Logged in successfully",
+                token: token,
+                userid: data.user_id,
+                date : new Date().toLocaleDateString()
+              });
+            } else {
+              return res.status(401).json({
+                status: false,
+                message: "Password Invalid",
+              });
+            }
+          } else {
+            return res
+              .status(403)
+              .json({ status: false, message: "User Does Not Exist" });
+          }
+        })
+        .catch((e) => {
+          console.log(e);
+        });
+    } catch (error) {
     } finally {
     }
   }
